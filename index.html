@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="fr">
 <head>
     <meta charset="utf-8">
@@ -364,7 +364,13 @@
 <body>
     <div class="wrap">
         <header class="header">
-            <div class="brand"><div class="logo">🔐</div><div><h1>Mon coffre-fort</h1><p>Gestion personnelle de mots de passe</p></div></div>
+            <div class="brand">
+                <div class="logo">🔐</div>
+                <div>
+                    <h1>Mon coffre-fort</h1>
+                    <p>Gestion personnelle de mots de passe</p>
+                </div>
+            </div>
             <span class="small muted">Chiffrement AES-GCM</span>
         </header>
 
@@ -375,7 +381,6 @@
 
             <div class="field">
                 <label for="masterPassword">Mot de passe maître</label>
-                <!-- Faux champs cachés pour forcer Chrome à détecter le formulaire et proposer l'enregistrement biométrique -->
                 <input type="text" name="username" value="MonCoffreUtilisateur" autocomplete="username" style="display:none;">
                 <input id="masterPassword" name="password" type="password" autocomplete="current-password" placeholder="Saisis ton mot de passe maître">
             </div>
@@ -383,7 +388,8 @@
             <div class="row">
                 <button id="newVault">Créer un coffre</button>
                 <button class="secondary" id="chooseVault">Ouvrir un JSON</button>
-                <button class="secondary" id="biometricUnlock" style="display:none;">🔑 Empreinte</button>
+                <!-- Le bouton biométrique est masqué par défaut (display:none) et ne s'affiche que si compatible -->
+                <button class="secondary hidden" id="biometricUnlock">🔑 Face ID / Empreinte</button>
                 <input class="hidden" type="file" id="vaultFile" accept=".json,application/json">
             </div>
 
@@ -392,14 +398,30 @@
 
         <main id="app">
             <section class="card">
-                <div class="topline"><div><h2>Mes identifiants</h2><div class="small muted" id="entryCount">0 compte</div></div><button id="addEntry">＋ Ajouter</button></div>
-                <div class="toolbar"><input id="search" type="search" placeholder="Rechercher un site, un identifiant…"><select id="filter"><option value="">Toutes catégories</option></select></div>
+                <div class="topline">
+                    <div>
+                        <h2>Mes identifiants</h2>
+                        <div class="small muted" id="entryCount">0 compte</div>
+                    </div>
+                    <button id="addEntry">＋ Ajouter</button>
+                </div>
+                <div class="toolbar">
+                    <input id="search" type="search" placeholder="Rechercher un site, un identifiant…">
+                    <select id="filter"><option value="">Toutes catégories</option></select>
+                </div>
                 <div id="entries"></div>
             </section>
+
             <section class="card">
-                <h2>Sauvegarde sur Google Drive</h2>
-                <p class="muted small">Après chaque modification, exporte le coffre et remplace l'ancien fichier JSON dans Google Drive. L'application ne se connecte pas à Drive et n'envoie aucune donnée.</p>
-                <div class="row"><button id="exportVault">⬇ Exporter le JSON chiffré</button><button class="secondary" id="importVault">Importer un JSON</button><button class="danger" id="lockVault">Verrouiller</button></div>
+                <h2>Sécurité & Appareil</h2>
+                <p class="muted small">Associez votre empreinte ou Face ID à cet appareil pour un accès rapide, ou gérez vos sauvegardes.</p>
+                <div class="row">
+                    <button id="exportVault">⬇ Exporter le JSON chiffré</button>
+                    <button class="secondary" id="importVault">Importer un JSON</button>
+                    <!-- Bouton pour activer la biométrie une fois connecté -->
+                    <button class="secondary hidden" id="enableBio">📱 Activer biométrie</button>
+                    <button class="danger" id="lockVault">Verrouiller</button>
+                </div>
                 <input class="hidden" type="file" id="importFile" accept=".json,application/json">
                 <p class="status" id="saveStatus" role="status"></p>
             </section>
@@ -437,16 +459,19 @@
         const dec = new TextDecoder();
         function setStatus(id, message, error = false) { const el = $(id); el.textContent = message; el.classList.toggle("error", error) }
         function randomBytes(n) { return crypto.getRandomValues(new Uint8Array(n)) }
+
         async function deriveKey(password, salt) {
             const material = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
             return crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 310000, hash: "SHA-256" }, material, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
         }
+
         async function encryptVault(password, data) {
             const salt = randomBytes(16), iv = randomBytes(12), key = await deriveKey(password, salt);
             const plain = enc.encode(JSON.stringify({ version: 1, entries: data }));
             const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plain);
             return { format: "mon-coffre-chiffre", version: 1, kdf: "PBKDF2-SHA256", iterations: 310000, cipher: "AES-256-GCM", salt: btoa(String.fromCharCode(...salt)), iv: btoa(String.fromCharCode(...iv)), data: btoa(String.fromCharCode(...new Uint8Array(cipher))) };
         }
+
         async function decryptVault(password, obj) {
             if (obj.format !== "mon-coffre-chiffre" || obj.version !== 1) throw new Error("Format de fichier non reconnu.");
             const salt = Uint8Array.from(atob(obj.salt), c => c.charCodeAt(0)), iv = Uint8Array.from(atob(obj.iv), c => c.charCodeAt(0)), cipher = Uint8Array.from(atob(obj.data), c => c.charCodeAt(0));
@@ -456,11 +481,30 @@
             if (!result || !Array.isArray(result.entries)) throw new Error("Le contenu du coffre est invalide.");
             return result.entries;
         }
-        function checkCrypto() { if (!window.crypto || !crypto.subtle) throw new Error("Le chiffrement sécurisé n'est pas disponible dans ce navigateur. Essaie avec Chrome ou Firefox à jour, en ouvrant le fichier HTML localement."); }
-        function showApp() { $("unlock").style.display = "none"; $("app").style.display = "block"; render(); setStatus("saveStatus", "Coffre déverrouillé. Pense à exporter après tes modifications."); }
-        function lock() { entries = []; master = ""; $("app").style.display = "none"; $("unlock").style.display = "block"; $("masterPassword").value = ""; $("search").value = ""; $("filter").innerHTML = '<option value="">Toutes catégories</option>'; setStatus("unlockStatus", "Coffre verrouillé."); }
+
+        function checkCrypto() { if (!window.crypto || !crypto.subtle) throw new Error("Le chiffrement sécurisé n'est pas disponible dans ce navigateur."); }
+
+        function showApp() {
+            $("unlock").style.display = "none";
+            $("app").style.display = "block";
+            render();
+            setStatus("saveStatus", "Coffre déverrouillé. Pense à exporter après tes modifications.");
+        }
+
+        function lock() {
+            entries = [];
+            master = "";
+            $("app").style.display = "none";
+            $("unlock").style.display = "block";
+            $("masterPassword").value = "";
+            $("search").value = "";
+            $("filter").innerHTML = '<option value="">Toutes catégories</option>';
+            setStatus("unlockStatus", "Coffre verrouillé.");
+        }
+
         function markDirty() { dirty = true; setStatus("saveStatus", "Modifications non exportées : pense à sauvegarder le JSON."); }
         function safeText(value) { return String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
         function render() {
             const q = $("search").value.trim().toLocaleLowerCase("fr"), cat = $("filter").value;
             const cats = [...new Set(entries.map(e => (e.category || "Autre").trim() || "Autre"))].sort((a, b) => a.localeCompare(b, "fr"));
@@ -477,6 +521,7 @@
      ${e.notes ? `<div class="entry-sub">${safeText(e.notes)}</div>` : ""}</div>
      <div class="actions"><button class="ghost" data-action="show">Afficher</button><button class="secondary" data-action="copy">Copier</button><button class="secondary" data-action="edit">Modifier</button><button class="danger" data-action="delete">Supprimer</button></div></article>`).join("");
         }
+
         function openEditor(item = null) {
             $("entryForm").reset(); $("entryId").value = item?.id || "";
             $("editorTitle").textContent = item ? "Modifier l'identifiant" : "Ajouter un identifiant";
@@ -484,21 +529,26 @@
             $("password").value = item?.password || ""; $("website").value = item?.website || ""; $("notes").value = item?.notes || "";
             $("editor").classList.add("open"); $("site").focus();
         }
+
         function closeEditor() { $("editor").classList.remove("open") }
+
         function download(filename, text) {
             const blob = new Blob([text], { type: "application/json" }), url = URL.createObjectURL(blob), a = document.createElement("a");
             a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
         }
+
         async function exportFile() {
             try { checkCrypto(); const encrypted = await encryptVault(master, entries); download(currentFileName, JSON.stringify(encrypted, null, 2)); dirty = false; setStatus("saveStatus", "Export terminé. Dépose ce fichier JSON dans ton Google Drive."); }
             catch (e) { setStatus("saveStatus", e.message, true); }
         }
+
         async function openFile(file, statusId) {
             try {
                 checkCrypto(); const obj = JSON.parse(await file.text()); const data = await decryptVault(master, obj);
                 entries = data; currentFileName = file.name || "mon-coffre.json"; dirty = false; showApp(); setStatus("saveStatus", "Coffre chargé depuis le fichier sélectionné.");
             } catch (e) { setStatus(statusId, e.name === "OperationError" ? "Mot de passe maître incorrect ou fichier endommagé." : e.message, true); }
         }
+
         $("newVault").addEventListener("click", () => {
             try {
                 checkCrypto(); const p = $("masterPassword").value; if (p.length < 12) { setStatus("unlockStatus", "Utilise un mot de passe maître d'au moins 12 caractères.", true); return; }
@@ -506,70 +556,134 @@
                 master = p; entries = []; currentFileName = "mon-coffre.json"; dirty = true; showApp(); setStatus("saveStatus", "Nouveau coffre créé. Ajoute des comptes puis exporte le JSON.");
             } catch (e) { setStatus("unlockStatus", e.message, true); }
         });
+
         $("chooseVault").addEventListener("click", () => {
             try { checkCrypto(); if (!$("masterPassword").value) { setStatus("unlockStatus", "Saisis d'abord ton mot de passe maître.", true); return; } master = $("masterPassword").value; $("vaultFile").click(); } catch (e) { setStatus("unlockStatus", e.message, true); }
         });
+
         $("vaultFile").addEventListener("change", e => { if (e.target.files[0]) openFile(e.target.files[0], "unlockStatus"); e.target.value = ""; });
         $("addEntry").addEventListener("click", () => openEditor());
         $("cancelEdit").addEventListener("click", closeEditor);
         $("editor").addEventListener("click", e => { if (e.target === $("editor")) closeEditor(); });
+
         $("entryForm").addEventListener("submit", e => {
             e.preventDefault(); const id = $("entryId").value || crypto.randomUUID();
             const item = { id, site: $("site").value.trim(), category: $("category").value.trim() || "Autre", username: $("username").value.trim(), password: $("password").value, website: $("website").value.trim(), notes: $("notes").value.trim() };
             const i = entries.findIndex(x => x.id === id); if (i >= 0) entries[i] = item; else entries.push(item);
             entries.sort((a, b) => a.site.localeCompare(b.site, "fr")); markDirty(); closeEditor(); render();
         });
+
         $("entries").addEventListener("click", async e => {
             const btn = e.target.closest("button[data-action]"); if (!btn) return; const article = btn.closest(".entry"), item = entries.find(x => x.id === article.dataset.id); if (!item) return;
             const action = btn.dataset.action;
             if (action === "show") { const el = $("pw-" + item.id); const shown = el.dataset.shown === "1"; el.textContent = shown ? "••••••••••••" : item.password; el.dataset.shown = shown ? "0" : "1"; btn.textContent = shown ? "Afficher" : "Masquer"; }
-            if (action === "copy") { try { await navigator.clipboard.writeText(item.password); btn.textContent = "Copié !"; setTimeout(() => btn.textContent = "Copier", 1300); } catch { alert("Copie indisponible. Affiche le mot de passe puis copie-le manuellement."); } }
+            if (action === "copy") { try { await navigator.clipboard.writeText(item.password); btn.textContent = "Copié !"; setTimeout(() => btn.textContent = "Copier", 1300); } catch { alert("Copie indisponible."); } }
             if (action === "edit") openEditor(item);
             if (action === "delete") { if (confirm("Supprimer le compte « " + item.site + " » ?")) { entries = entries.filter(x => x.id !== item.id); markDirty(); render(); } }
         });
-        $("search").addEventListener("input", render); $("filter").addEventListener("change", render);
+
+        $("search").addEventListener("input", render);
+        $("filter").addEventListener("change", render);
         $("exportVault").addEventListener("click", exportFile);
-        $("importVault").addEventListener("click", () => { if (confirm("Importer un autre coffre remplacera les données actuellement ouvertes. As-tu exporté les modifications en cours ?")) $("importFile").click(); });
+        $("importVault").addEventListener("click", () => { if (confirm("Importer un autre coffre remplacera les données actuellement ouvertes.")) $("importFile").click(); });
         $("importFile").addEventListener("change", e => { if (e.target.files[0]) openFile(e.target.files[0], "saveStatus"); e.target.value = ""; });
         $("lockVault").addEventListener("click", () => { if (dirty && !confirm("Des modifications ne sont pas exportées. Verrouiller quand même ?")) return; lock(); });
         window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
 
-        // --- Code de détection et d'activation de la biométrie ---
-        window.addEventListener("DOMContentLoaded", async () => {
+        // --- GESTION DE LA BIOMÉTRIE (WEBAUTHN) ---
+        const bufferFromBase64 = str => Uint8Array.from(atob(str), c => c.charCodeAt(0));
+        const base64FromBuffer = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+
+        async function registerBiometrics() {
+            if (!master) {
+                setStatus("saveStatus", "Veuillez d'abord déverrouiller le coffre avec votre mot de passe.", true);
+                return;
+            }
             try {
-                if (window.PublicKeyCredential &&
-                    await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()) {
-                    const btnBio = $("biometricUnlock");
-                    if (btnBio) btnBio.style.display = "inline-block";
+                const credential = await navigator.credentials.create({
+                    publicKey: {
+                        challenge: crypto.getRandomValues(new Uint8Array(32)),
+                        rp: { name: "Mon Coffre-Fort" },
+                        user: { id: crypto.getRandomValues(new Uint8Array(16)), name: "user@local", displayName: "Utilisateur" },
+                        pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
+                        authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
+                        timeout: 60000
+                    }
+                });
+
+                if (credential) {
+                    const localSalt = randomBytes(16);
+                    const localIv = randomBytes(12);
+                    const localKey = await deriveKey("biometric-vault-local-key", localSalt);
+                    const encryptedMaster = await crypto.subtle.encrypt({ name: "AES-GCM", iv: localIv }, localKey, enc.encode(master));
+
+                    const bioData = {
+                        credentialId: base64FromBuffer(credential.rawId),
+                        salt: base64FromBuffer(localSalt),
+                        iv: base64FromBuffer(localIv),
+                        data: base64FromBuffer(encryptedMaster)
+                    };
+
+                    localStorage.setItem("vault_biometric_data", JSON.stringify(bioData));
+                    setStatus("saveStatus", "Face ID / Empreinte configuré avec succès sur cet appareil !");
                 }
             } catch (e) {
-                console.log("Biométrie non disponible sur cet appareil");
+                setStatus("saveStatus", "Erreur d'activation biométrique : " + e.message, true);
+            }
+        }
+
+        async function unlockWithBiometrics() {
+            const rawBioData = localStorage.getItem("vault_biometric_data");
+            if (!rawBioData) {
+                setStatus("unlockStatus", "Aucune biométrie enregistrée. Connectez-vous une première fois avec votre mot de passe.", true);
+                return;
+            }
+            try {
+                const bioData = JSON.parse(rawBioData);
+                setStatus("unlockStatus", "Vérification biométrique en cours...");
+
+                const credential = await navigator.credentials.get({
+                    publicKey: {
+                        challenge: crypto.getRandomValues(new Uint8Array(32)),
+                        allowCredentials: [{ id: bufferFromBase64(bioData.credentialId), type: 'public-key' }],
+                        userVerification: "required",
+                        timeout: 60000
+                    }
+                });
+
+                if (credential) {
+                    const localSalt = bufferFromBase64(bioData.salt);
+                    const localIv = bufferFromBase64(bioData.iv);
+                    const encryptedMaster = bufferFromBase64(bioData.data);
+
+                    const localKey = await deriveKey("biometric-vault-local-key", localSalt);
+                    const decryptedMasterBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv: localIv }, localKey, encryptedMaster);
+
+                    master = dec.decode(decryptedMasterBuf);
+                    setStatus("unlockStatus", "Biométrie validée ! Sélectionnez votre fichier JSON.");
+                    $("vaultFile").click();
+                }
+            } catch (err) {
+                setStatus("unlockStatus", "Échec ou annulation de la vérification biométrique.", true);
+            }
+        }
+
+        // Vérification automatique au chargement de la compatibilité biométrique de l'appareil
+        window.addEventListener("DOMContentLoaded", async () => {
+            try {
+                if (window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()) {
+                    // Si l'appareil gère la biométrie, on affiche les boutons dédiés
+                    $("biometricUnlock").classList.remove("hidden");
+                    $("enableBio").classList.remove("hidden");
+                }
+            } catch (e) {
+                console.log("Biométrie non supportée ou non configurée sur cet environnement.");
             }
         });
 
-        const btnBio = $("biometricUnlock");
-        if (btnBio) {
-            btnBio.addEventListener("click", async () => {
-                try {
-                    setStatus("unlockStatus", "Vérification biométrique en cours...");
-
-                    const credential = await navigator.credentials.get({
-                        publicKey: {
-                            challenge: Uint8Array.from("mon-coffre-fort-challenge", c => c.charCodeAt(0)),
-                            timeout: 60000,
-                            userVerification: "required"
-                        }
-                    });
-
-                    if (credential) {
-                        setStatus("unlockStatus", "Biométrie validée ! Veuillez sélectionner votre fichier JSON.");
-                        $("vaultFile").click();
-                    }
-                } catch (err) {
-                    setStatus("unlockStatus", "Échec ou annulation de l'empreinte.", true);
-                }
-            });
-        }
+        // Écouteurs d'événements pour la biométrie
+        $("biometricUnlock").addEventListener("click", unlockWithBiometrics);
+        $("enableBio").addEventListener("click", registerBiometrics);
     </script>
 </body>
 </html>
