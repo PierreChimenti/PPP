@@ -515,11 +515,11 @@
             $("entryCount").textContent = entries.length + " compte" + (entries.length > 1 ? "s" : "");
             if (!filtered.length) { $("entries").innerHTML = '<div class="empty">' + (entries.length ? "Aucun résultat." : "Ton coffre est vide. Ajoute ton premier identifiant.") + '</div>'; return; }
             $("entries").innerHTML = filtered.map(e => `<article class="entry" data-id="${safeText(e.id)}">
-     <div class="entry-main"><div class="entry-title">${safeText(e.site)}<span class="category">${safeText(e.category || "Autre")}</span></div>
-     <div class="entry-sub">${safeText(e.username || "Aucun identifiant")}${e.website ? " · " + safeText(e.website) : ""}</div>
-     <div class="password-line" id="pw-${safeText(e.id)}">••••••••••••</div>
-     ${e.notes ? `<div class="entry-sub">${safeText(e.notes)}</div>` : ""}</div>
-     <div class="actions"><button class="ghost" data-action="show">Afficher</button><button class="secondary" data-action="copy">Copier</button><button class="secondary" data-action="edit">Modifier</button><button class="danger" data-action="delete">Supprimer</button></div></article>`).join("");
+         <div class="entry-main"><div class="entry-title">${safeText(e.site)}<span class="category">${safeText(e.category || "Autre")}</span></div>
+         <div class="entry-sub">${safeText(e.username || "Aucun identifiant")}${e.website ? " · " + safeText(e.website) : ""}</div>
+         <div class="password-line" id="pw-${safeText(e.id)}">••••••••••••</div>
+         ${e.notes ? `<div class="entry-sub">${safeText(e.notes)}</div>` : ""}</div>
+         <div class="actions"><button class="ghost" data-action="show">Afficher</button><button class="secondary" data-action="copy">Copier</button><button class="secondary" data-action="edit">Modifier</button><button class="danger" data-action="delete">Supprimer</button></div></article>`).join("");
         }
 
         function openEditor(item = null) {
